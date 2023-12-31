@@ -8,6 +8,7 @@ namespace Dapper
 {
     /// <summary>
     /// Represents the key aspects of a sql operation
+    /// SQL操作
     /// </summary>
     public readonly struct CommandDefinition
     {
