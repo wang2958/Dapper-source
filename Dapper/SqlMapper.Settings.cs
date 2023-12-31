@@ -12,8 +12,15 @@ namespace Dapper
         public static class Settings
         {
             // disable single result by default; prevents errors AFTER the select being detected properly
+            // 默认情况下禁用了 CommandBehavior.SingleResult。
             private const CommandBehavior DefaultAllowedCommandBehaviors = ~CommandBehavior.SingleResult;
             internal static CommandBehavior AllowedCommandBehaviors { get; private set; } = DefaultAllowedCommandBehaviors;
+
+            /// <summary>
+            /// 调整 AllowedCommandBehaviors 允许的命令行为.
+            /// </summary>
+            /// <param name="behavior"></param>
+            /// <param name="enabled"></param>
             private static void SetAllowedCommandBehaviors(CommandBehavior behavior, bool enabled)
             {
                 if (enabled) AllowedCommandBehaviors |= behavior;
@@ -38,14 +45,27 @@ namespace Dapper
                 set { SetAllowedCommandBehaviors(CommandBehavior.SingleRow, value); }
             }
 
+            /// <summary>
+            /// 禁用命令行为 优化. 
+            /// 调整命令, 排除掉不允许的CommandBehavior (SingleResult | SingleRow), 因为有些不支持这两种命令
+            /// </summary>
+            /// <param name="behavior"></param>
+            /// <param name="ex"></param>
+            /// <returns></returns>
             internal static bool DisableCommandBehaviorOptimizations(CommandBehavior behavior, Exception ex)
             {
+                // 此条件检查当前允许的命令行为是否等于默认允许的命令行为，并且提供的 behavior 是否具有 SingleResult 或 SingleRow 标志。
                 if (AllowedCommandBehaviors == DefaultAllowedCommandBehaviors
                     && (behavior & (CommandBehavior.SingleResult | CommandBehavior.SingleRow)) != 0)
                 {
+                    // 此条件检查异常消息是否包含 CommandBehavior.SingleResult 或 CommandBehavior.SingleRow 的名称。
+                    // 它试图确定异常是否与使用 SingleResult 或 SingleRow 有关。
                     if (ex.Message.Contains(nameof(CommandBehavior.SingleResult))
                         || ex.Message.Contains(nameof(CommandBehavior.SingleRow)))
-                    { // some providers just allow these, so: try again without them and stop issuing them
+                    {
+                        // some providers just allow these, so: try again without them and stop issuing them
+                        // 将允许的命令行为设置为不包括 SingleResult 和 SingleRow，并返回 true。
+                        // 此调整是为了处理一些提供程序不支持这些特定命令行为的情况。
                         SetAllowedCommandBehaviors(CommandBehavior.SingleResult | CommandBehavior.SingleRow, false);
                         return true;
                     }

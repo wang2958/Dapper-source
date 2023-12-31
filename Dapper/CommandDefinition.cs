@@ -8,7 +8,7 @@ namespace Dapper
 {
     /// <summary>
     /// Represents the key aspects of a sql operation
-    /// SQL操作命令定义
+    /// SQL操作命令
     /// </summary>
     public readonly struct CommandDefinition
     {
@@ -49,6 +49,9 @@ namespace Dapper
         /// </summary>
         public int? CommandTimeout { get; }
 
+        /// <summary>
+        /// 命令类型: SQL文本. 存储过程.
+        /// </summary>
         internal readonly CommandType CommandTypeDirect;
 
         /// <summary>

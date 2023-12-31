@@ -4,6 +4,7 @@ namespace Dapper
 {
     /// <summary>
     /// Additional state flags that control command behaviour
+    /// 命令标志. 控制命令行为的其他状态标志
     /// </summary>
     [Flags]
     public enum CommandFlags

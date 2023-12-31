@@ -1,8 +1,10 @@
-﻿using System.Diagnostics.CodeAnalysis;
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
 
 namespace Dapper;
 
+/// <summary>
+/// 正则表达式
+/// </summary>
 internal static partial class CompiledRegex
 {
 #if DEBUG && NET7_0_OR_GREATER // enables colorization in IDE

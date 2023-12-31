@@ -379,11 +379,24 @@ namespace Dapper
         public static Task<T?> QuerySingleOrDefaultAsync<T>(this IDbConnection cnn, CommandDefinition command) =>
             QueryRowAsync<T?>(cnn, Row.SingleOrDefault, typeof(T), command);
 
+        /// <summary>
+        /// 根据执行的行为CommandBehavior, 读取数据.
+        /// </summary>
+        /// <param name="cmd"></param>
+        /// <param name="wasClosed"></param>
+        /// <param name="behavior"></param>
+        /// <param name="cancellationToken"></param>
+        /// <returns></returns>
         private static Task<DbDataReader> ExecuteReaderWithFlagsFallbackAsync(DbCommand cmd, bool wasClosed, CommandBehavior behavior, CancellationToken cancellationToken)
         {
+            // 执行异步读取操作
             var task = cmd.ExecuteReaderAsync(GetBehavior(wasClosed, behavior), cancellationToken);
+
+            // Task内部执行发生异常. 调整命令行为CommandBehavior参数重试
             if (task.Status == TaskStatus.Faulted && Settings.DisableCommandBehaviorOptimizations(behavior, task.Exception!.InnerException!))
-            { // we can retry; this time it will have different flags
+            {
+                // we can retry; this time it will have different flags
+                // 对于一些数据库提供程序，使用 SingleResult 或 SingleRow 命令行为可能会导致异常或问题。
                 return cmd.ExecuteReaderAsync(GetBehavior(wasClosed, behavior), cancellationToken);
             }
             return task;
@@ -485,10 +498,16 @@ namespace Dapper
             DbDataReader? reader = null;
             try
             {
+                // 打开数据库连接
                 if (wasClosed) await cnn.TryOpenAsync(cancel).ConfigureAwait(false);
-                reader = await ExecuteReaderWithFlagsFallbackAsync(cmd, wasClosed, (row & Row.Single) != 0
-                ? CommandBehavior.SequentialAccess | CommandBehavior.SingleResult // need to allow multiple rows, to check fail condition
-                : CommandBehavior.SequentialAccess | CommandBehavior.SingleResult | CommandBehavior.SingleRow, cancel).ConfigureAwait(false);
+
+                // 命令行为. 检查变量 row 中是否包含 Row.Single 的枚举。
+                var commandBehavior  = (row & Row.Single) != 0
+                    ? CommandBehavior.SequentialAccess | CommandBehavior.SingleResult // need to allow multiple rows, to check fail condition
+                    : CommandBehavior.SequentialAccess | CommandBehavior.SingleResult | CommandBehavior.SingleRow;
+                
+                // 获取数据读取器
+                reader = await ExecuteReaderWithFlagsFallbackAsync(cmd, wasClosed, commandBehavior, cancel).ConfigureAwait(false);
 
                 T result = default!;
                 if (await reader.ReadAsync(cancel).ConfigureAwait(false) && reader.FieldCount != 0)

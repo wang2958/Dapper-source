@@ -1611,6 +1611,7 @@ namespace Dapper
 
         private static CommandBehavior GetBehavior(bool close, CommandBehavior @default)
         {
+            // 如果需要Close关闭连接, 则在默认行为中添加CloseConnection行为, 用于关闭连接. 并返回(AllowedCommandBehaviors)允许的命令行为
             return (close ? (@default | CommandBehavior.CloseConnection) : @default) & Settings.AllowedCommandBehaviors;
         }
 
