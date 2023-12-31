@@ -502,32 +502,52 @@ namespace Dapper
                 if (wasClosed) await cnn.TryOpenAsync(cancel).ConfigureAwait(false);
 
                 // 命令行为. 检查变量 row 中是否包含 Row.Single 的枚举。
-                var commandBehavior  = (row & Row.Single) != 0
+                var commandBehavior = (row & Row.Single) != 0
                     ? CommandBehavior.SequentialAccess | CommandBehavior.SingleResult // need to allow multiple rows, to check fail condition
                     : CommandBehavior.SequentialAccess | CommandBehavior.SingleResult | CommandBehavior.SingleRow;
-                
+
                 // 获取数据读取器
                 reader = await ExecuteReaderWithFlagsFallbackAsync(cmd, wasClosed, commandBehavior, cancel).ConfigureAwait(false);
 
                 T result = default!;
-                if (await reader.ReadAsync(cancel).ConfigureAwait(false) && reader.FieldCount != 0)
+
+                // 读取当前结果集中的数据
+                if (await reader.ReadAsync(cancel).ConfigureAwait(false) // 从Reader中读取下一行数据
+                    && reader.FieldCount != 0 // 检查数据中是否包含字段
+                    )
                 {
+                    // 将行数据转换成对应的泛型实体
                     result = ReadRow<T>(info, identity, ref command, effectiveType, reader);
 
-                    if ((row & Row.Single) != 0 && await reader.ReadAsync(cancel).ConfigureAwait(false)) ThrowMultipleRows(row);
-                    while (await reader.ReadAsync(cancel).ConfigureAwait(false)) { /* ignore rows after the first */ }
+                    // 如果是Single, 发现返回了多行结果, 抛出存在多行数据异常 InvalidOperationException
+                    if ((row & Row.Single) != 0 && await reader.ReadAsync(cancel).ConfigureAwait(false))
+                        ThrowMultipleRows(row);
+
+                    while (await reader.ReadAsync(cancel).ConfigureAwait(false))
+                    {
+                        /* 忽略后面的结果, 只读取第一行 */
+                    }
                 }
                 else if ((row & Row.FirstOrDefault) == 0) // demanding a row, and don't have one
                 {
+                    // 没有读取到可用行, 而且没有指定是 FirstOrDefault. 抛出0行异常 InvalidOperationException
                     ThrowZeroRows(row);
                 }
-                while (await reader.NextResultAsync(cancel).ConfigureAwait(false)) { /* ignore result sets after the first */ }
+
+                while (await reader.NextResultAsync(cancel).ConfigureAwait(false))
+                {
+                    /* ignore result sets after the first 
+                     * 忽略后面的结果, 只读取第一行
+                     */
+                }
+
                 return result;
             }
             finally
             {
-                using (reader) { /* dispose if non-null */ }
-                if (wasClosed) cnn.Close();
+                // 释放Reader结果集
+                using (reader) { /* dispose if non-null */}
+                if (wasClosed) cnn.Close(); // 关闭连接
             }
         }
 
