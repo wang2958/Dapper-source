@@ -33,6 +33,15 @@ namespace Dapper
         {
             public int Compare(PropertyInfo? x, PropertyInfo? y) => string.CompareOrdinal(x?.Name, y?.Name);
         }
+
+        /// <summary>
+        /// 生成一个唯一标识当前 DbDataReader 对象的列信息的哈希值。
+        /// 这样的哈希值可能在某些场景下用于快速比较两个查询结果集的结构是否相同。
+        /// </summary>
+        /// <param name="reader">数据库查询结果的数据读取器对象。</param>
+        /// <param name="startBound">开始计算哈希的列索引。</param>
+        /// <param name="length">计算哈希的列的数量，如果为负数，则计算从 startBound 到最后一列的哈希。</param>
+        /// <returns></returns>
         private static int GetColumnHash(DbDataReader reader, int startBound = 0, int length = -1)
         {
             unchecked
@@ -61,6 +70,8 @@ namespace Dapper
         private static readonly System.Collections.Concurrent.ConcurrentDictionary<Identity, CacheInfo> _queryCache = new();
         private static void SetQueryCache(Identity key, CacheInfo value)
         {
+            // 设置缓存的数量达到指定COLLECT_PER_ITEMS的1000, 触发回收操作
+            // 每1000次设置, 触发一次回收
             if (Interlocked.Increment(ref collect) == COLLECT_PER_ITEMS)
             {
                 CollectCacheGarbage();
@@ -68,6 +79,9 @@ namespace Dapper
             _queryCache[key] = value;
         }
 
+        /// <summary>
+        /// 回收Query缓存信息
+        /// </summary>
         private static void CollectCacheGarbage()
         {
             try
@@ -76,6 +90,7 @@ namespace Dapper
                 {
                     if (pair.Value.GetHitCount() <= COLLECT_HIT_COUNT_MIN)
                     {
+                        // 移除命中次数为0的Query缓存信息. 释放空间
                         _queryCache.TryRemove(pair.Key, out var _);
                     }
                 }
@@ -83,6 +98,7 @@ namespace Dapper
 
             finally
             {
+                // 重置为0
                 Interlocked.Exchange(ref collect, 0);
             }
         }
@@ -92,6 +108,7 @@ namespace Dapper
 
         private static bool TryGetQueryCache(Identity key, [NotNullWhen(true)] out CacheInfo? value)
         {
+            // 获取Query缓存并计数
             if (_queryCache.TryGetValue(key, out value!))
             {
                 value.RecordHit();
@@ -1223,7 +1240,7 @@ namespace Dapper
                     reader.Dispose();
                 }
                 if (wasClosed) cnn.Close();
-                
+
                 cmd?.Parameters.Clear();
                 cmd?.Dispose();
             }
@@ -1321,24 +1338,36 @@ namespace Dapper
         }
 
         /// <summary>
-        /// Shared value deserialization path for QueryRowImpl and QueryRowAsync
+        /// Shared value deserialization path for QueryRowImpl and QueryRowAsync <br/>
+        /// MethodImplOptions.AggressiveInlining 指定编译器将此方法直接内联到调用方, 而不是调用此处方法.
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static T ReadRow<T>(CacheInfo info, Identity identity, ref CommandDefinition command, Type effectiveType, DbDataReader reader)
         {
             var tuple = info.Deserializer;
-            int hash = GetColumnHash(reader);
-            if (tuple.Func is null || tuple.Hash != hash)
+            int hash = GetColumnHash(reader); // 计算Hash
+            if (tuple.Func is null || tuple.Hash != hash) // 结果集和缓存信息结果不匹配
             {
+                // 构建一个新的反序列化器
                 tuple = info.Deserializer = new DeserializerState(hash, GetDeserializer(effectiveType, reader, 0, -1, false));
+                // 命令是否启用缓存
                 if (command.AddToCache) SetQueryCache(identity, info);
             }
 
-            var func = tuple.Func;
-            object? val = func(reader);
+            // 反序列化方法
+            var func = tuple.Func; 
+            object? val = func(reader); // 执行反序列化
             return GetValue<T>(reader, effectiveType, val);
         }
 
+        /// <summary>
+        /// 将结果转换成实体类型
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="reader"></param>
+        /// <param name="effectiveType"></param>
+        /// <param name="val"></param>
+        /// <returns></returns>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static T GetValue<T>(DbDataReader reader, Type effectiveType, object? val)
         {
@@ -1683,15 +1712,15 @@ namespace Dapper
 
         private static Func<DbDataReader, TReturn> GenerateMapper<TFirst, TSecond, TThird, TFourth, TFifth, TSixth, TSeventh, TReturn>(Func<DbDataReader, object> deserializer, Func<DbDataReader, object>[] otherDeserializers, object map)
             => otherDeserializers.Length switch
-        {
-            1 => r => ((Func<TFirst, TSecond, TReturn>)map)((TFirst)deserializer(r), (TSecond)otherDeserializers[0](r)),
-            2 => r => ((Func<TFirst, TSecond, TThird, TReturn>)map)((TFirst)deserializer(r), (TSecond)otherDeserializers[0](r), (TThird)otherDeserializers[1](r)),
-            3 => r => ((Func<TFirst, TSecond, TThird, TFourth, TReturn>)map)((TFirst)deserializer(r), (TSecond)otherDeserializers[0](r), (TThird)otherDeserializers[1](r), (TFourth)otherDeserializers[2](r)),
-            4 => r => ((Func<TFirst, TSecond, TThird, TFourth, TFifth, TReturn>)map)((TFirst)deserializer(r), (TSecond)otherDeserializers[0](r), (TThird)otherDeserializers[1](r), (TFourth)otherDeserializers[2](r), (TFifth)otherDeserializers[3](r)),
-            5 => r => ((Func<TFirst, TSecond, TThird, TFourth, TFifth, TSixth, TReturn>)map)((TFirst)deserializer(r), (TSecond)otherDeserializers[0](r), (TThird)otherDeserializers[1](r), (TFourth)otherDeserializers[2](r), (TFifth)otherDeserializers[3](r), (TSixth)otherDeserializers[4](r)),
-            6 => r => ((Func<TFirst, TSecond, TThird, TFourth, TFifth, TSixth, TSeventh, TReturn>)map)((TFirst)deserializer(r), (TSecond)otherDeserializers[0](r), (TThird)otherDeserializers[1](r), (TFourth)otherDeserializers[2](r), (TFifth)otherDeserializers[3](r), (TSixth)otherDeserializers[4](r), (TSeventh)otherDeserializers[5](r)),
-            _ => throw new NotSupportedException(),
-        };
+            {
+                1 => r => ((Func<TFirst, TSecond, TReturn>)map)((TFirst)deserializer(r), (TSecond)otherDeserializers[0](r)),
+                2 => r => ((Func<TFirst, TSecond, TThird, TReturn>)map)((TFirst)deserializer(r), (TSecond)otherDeserializers[0](r), (TThird)otherDeserializers[1](r)),
+                3 => r => ((Func<TFirst, TSecond, TThird, TFourth, TReturn>)map)((TFirst)deserializer(r), (TSecond)otherDeserializers[0](r), (TThird)otherDeserializers[1](r), (TFourth)otherDeserializers[2](r)),
+                4 => r => ((Func<TFirst, TSecond, TThird, TFourth, TFifth, TReturn>)map)((TFirst)deserializer(r), (TSecond)otherDeserializers[0](r), (TThird)otherDeserializers[1](r), (TFourth)otherDeserializers[2](r), (TFifth)otherDeserializers[3](r)),
+                5 => r => ((Func<TFirst, TSecond, TThird, TFourth, TFifth, TSixth, TReturn>)map)((TFirst)deserializer(r), (TSecond)otherDeserializers[0](r), (TThird)otherDeserializers[1](r), (TFourth)otherDeserializers[2](r), (TFifth)otherDeserializers[3](r), (TSixth)otherDeserializers[4](r)),
+                6 => r => ((Func<TFirst, TSecond, TThird, TFourth, TFifth, TSixth, TSeventh, TReturn>)map)((TFirst)deserializer(r), (TSecond)otherDeserializers[0](r), (TThird)otherDeserializers[1](r), (TFourth)otherDeserializers[2](r), (TFifth)otherDeserializers[3](r), (TSixth)otherDeserializers[4](r), (TSeventh)otherDeserializers[5](r)),
+                _ => throw new NotSupportedException(),
+            };
 
         private static Func<DbDataReader, TReturn> GenerateMapper<TReturn>(int length, Func<DbDataReader, object> deserializer, Func<DbDataReader, object>[] otherDeserializers, Func<object[], TReturn> map)
         {
@@ -1963,7 +1992,7 @@ namespace Dapper
                 return new ArgumentException(
                     string.IsNullOrEmpty(splitOn)
                     ? "When using the multi-mapping APIs ensure you set the splitOn param if you have keys other than Id"
-                    : $"Multi-map error: splitOn column '{splitOn}' was not found - please ensure your splitOn parameter is set and in the correct order", 
+                    : $"Multi-map error: splitOn column '{splitOn}' was not found - please ensure your splitOn parameter is set and in the correct order",
                     nameof(splitOn));
             }
             else
@@ -2531,12 +2560,12 @@ namespace Dapper
             }
 
             bool filterParams = removeUnused && identity.CommandType.GetValueOrDefault(CommandType.Text) == CommandType.Text;
-            
+
             if (filterParams && Settings.SupportLegacyParameterTokens)
             {
                 filterParams = !CompiledRegex.LegacyParameter.IsMatch(identity.Sql);
             }
-            
+
             var dm = new DynamicMethod("ParamInfo" + Guid.NewGuid().ToString(), null, new[] { typeof(IDbCommand), typeof(object) }, type, true);
 
             var il = dm.GetILGenerator();

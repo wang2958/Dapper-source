@@ -487,11 +487,22 @@ namespace Dapper
             }
         }
 
+        /// <summary>
+        /// 查询数据.
+        /// 从数据库中拉取数据, 并反序列化成指定类型的实体
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="cnn"></param>
+        /// <param name="row"></param>
+        /// <param name="effectiveType"></param>
+        /// <param name="command"></param>
+        /// <returns></returns>
         private static async Task<T> QueryRowAsync<T>(this IDbConnection cnn, Row row, Type effectiveType, CommandDefinition command)
         {
             object? param = command.Parameters;
             var identity = new Identity(command.CommandText, command.CommandTypeDirect, cnn, effectiveType, param?.GetType());
             var info = GetCacheInfo(identity, param, command.AddToCache);
+
             bool wasClosed = cnn.State == ConnectionState.Closed;
             var cancel = command.CancellationToken;
             using var cmd = command.TrySetupAsyncCommand(cnn, info.ParamReader);
@@ -534,10 +545,11 @@ namespace Dapper
                     ThrowZeroRows(row);
                 }
 
+                // 下一个结果集的数据
                 while (await reader.NextResultAsync(cancel).ConfigureAwait(false))
                 {
                     /* ignore result sets after the first 
-                     * 忽略后面的结果, 只读取第一行
+                     * 忽略后面的结果集, 只读取第一个结果集中的数据
                      */
                 }
 
